@@ -14,18 +14,18 @@ class ModelWithTemperature(nn.Module):
     def __init__(self, model):
         super(ModelWithTemperature, self).__init__()
         self.model = model
-        self.temperature = nn.Parameter(torch.ones(1) * 1.5)
+        self.temperature = nn.Parameter(torch.ones(1) * 1.5) # 그냥 이렇게 초기화?
 
     def forward(self, input):
-        logits = self.model(input)
-        return self.temperature_scale(logits)
+        logits = self.model(input) #  original model로 forward (Densenet)
+        return self.temperature_scale(logits) # 마지막에 결과값에 후처리
 
     def temperature_scale(self, logits):
         """
         Perform temperature scaling on logits
         """
         # Expand temperature to match the size of logits
-        temperature = self.temperature.unsqueeze(1).expand(logits.size(0), logits.size(1))
+        temperature = self.temperature.unsqueeze(1).expand(logits.size(0), logits.size(1)) # TODO: logit shape 확인해보고 싶음
         return logits / temperature
 
     # This function probably should live outside of this class, but whatever
@@ -43,7 +43,7 @@ class ModelWithTemperature(nn.Module):
         logits_list = []
         labels_list = []
         with torch.no_grad():
-            for input, label in valid_loader:
+            for input, label in valid_loader: # val set으로만
                 input = input.cuda()
                 logits = self.model(input)
                 logits_list.append(logits)
@@ -54,7 +54,7 @@ class ModelWithTemperature(nn.Module):
         # Calculate NLL and ECE before temperature scaling
         before_temperature_nll = nll_criterion(logits, labels).item()
         before_temperature_ece = ece_criterion(logits, labels).item()
-        print('Before temperature - NLL: %.3f, ECE: %.3f' % (before_temperature_nll, before_temperature_ece))
+        print('Before temperature - NLL: %.3f, ECE: %.3f' % (before_temperature_nll, before_temperature_ece)) # 후처리 전 error & calibaration error
 
         # Next: optimize the temperature w.r.t. NLL
         optimizer = optim.LBFGS([self.temperature], lr=0.01, max_iter=50)
@@ -70,7 +70,7 @@ class ModelWithTemperature(nn.Module):
         after_temperature_nll = nll_criterion(self.temperature_scale(logits), labels).item()
         after_temperature_ece = ece_criterion(self.temperature_scale(logits), labels).item()
         print('Optimal temperature: %.3f' % self.temperature.item())
-        print('After temperature - NLL: %.3f, ECE: %.3f' % (after_temperature_nll, after_temperature_ece))
+        print('After temperature - NLL: %.3f, ECE: %.3f' % (after_temperature_nll, after_temperature_ece)) # 후처리 후 error & calibaration error
 
         return self
 
@@ -101,21 +101,22 @@ class _ECELoss(nn.Module):
         super(_ECELoss, self).__init__()
         bin_boundaries = torch.linspace(0, 1, n_bins + 1)
         self.bin_lowers = bin_boundaries[:-1]
-        self.bin_uppers = bin_boundaries[1:]
+        self.bin_uppers = bin_boundaries[1:] # 오..
 
     def forward(self, logits, labels):
         softmaxes = F.softmax(logits, dim=1)
-        confidences, predictions = torch.max(softmaxes, 1)
+        confidences, predictions = torch.max(softmaxes, dim=1) # dim 정보가 있을 때는 index정보를 추가적으로 반환함
         accuracies = predictions.eq(labels)
 
         ece = torch.zeros(1, device=logits.device)
         for bin_lower, bin_upper in zip(self.bin_lowers, self.bin_uppers):
             # Calculated |confidence - accuracy| in each bin
-            in_bin = confidences.gt(bin_lower.item()) * confidences.le(bin_upper.item())
-            prop_in_bin = in_bin.float().mean()
+            # confidence bin 구간에 해당하는 애들  and연산으로 걸러냄 오,,싱기하다
+            in_bin = confidences.gt(bin_lower.item()) * confidences.le(bin_upper.item()) # gt : >    le : <=
+            prop_in_bin = in_bin.float().mean() # bin에 들어간 애들 개수
             if prop_in_bin.item() > 0:
                 accuracy_in_bin = accuracies[in_bin].float().mean()
                 avg_confidence_in_bin = confidences[in_bin].mean()
-                ece += torch.abs(avg_confidence_in_bin - accuracy_in_bin) * prop_in_bin
+                ece += torch.abs(avg_confidence_in_bin - accuracy_in_bin) * prop_in_bin  # bin element 개수로 weight
 
         return ece
