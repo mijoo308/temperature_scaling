@@ -118,9 +118,9 @@ def run_epoch(loader, model, criterion, optimizer, epoch=0, n_epochs=0, train=Tr
     return time_meter.value(), loss_meter.value(), error_meter.value()
 
 
-def train(data, save, valid_size=5000, seed=None,
+def train(data='./data', save='./save', valid_size=5000, seed=None,
           depth=40, growth_rate=12, n_epochs=300, batch_size=64,
-          lr=0.1, wd=0.0001, momentum=0.9):
+          lr=0.1, wd=0.0001, momentum=0.9, num_classes=10):
     """
     A function to train a DenseNet-BC on CIFAR-100.
 
@@ -173,8 +173,15 @@ def train(data, save, valid_size=5000, seed=None,
     #
     # IMPORTANT! We need to use the same validation set for temperature
     # scaling, so we're going to save the indices for later
-    train_set = tv.datasets.CIFAR100(data, train=True, transform=train_transforms, download=True)
-    valid_set = tv.datasets.CIFAR100(data, train=True, transform=test_transforms, download=False)
+    
+    if num_classes == 100:        
+        train_set = tv.datasets.CIFAR100(data, train=True, transform=train_transforms, download=True)
+        valid_set = tv.datasets.CIFAR100(data, train=True, transform=test_transforms, download=False)
+    
+    elif num_classes == 10:
+        train_set = tv.datasets.CIFAR10(data, train=True, transform=train_transforms, download=True)
+        valid_set = tv.datasets.CIFAR10(data, train=True, transform=test_transforms, download=False)
+    
     indices = torch.randperm(len(train_set))
     train_indices = indices[:len(indices) - valid_size]
     valid_indices = indices[len(indices) - valid_size:] if valid_size else None
@@ -189,7 +196,7 @@ def train(data, save, valid_size=5000, seed=None,
     model = DenseNet(
         growth_rate=growth_rate,
         block_config=block_config,
-        num_classes=100
+        num_classes=num_classes
     )
     # Wrap model if multiple gpus
     if torch.cuda.device_count() > 1:
